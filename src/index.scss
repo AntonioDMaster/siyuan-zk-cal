@@ -1,0 +1,146 @@
+ .zk-cal__dock {
+    height: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+}
+
+.zk-cal {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+}
+
+.zk-cal__nav {
+    display: grid;
+    grid-template-columns: 40px 1fr auto 40px;
+    gap: 4px;
+    align-items: center;
+}
+
+.zk-cal__month {
+    text-align: center;
+    font-weight: 600;
+}
+
+.zk-cal__grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: opacity 160ms ease;
+}
+
+.zk-cal__grid--loading {
+    opacity: 0.6;
+}
+
+.zk-cal__grid-head {
+    display: grid;
+    gap: 4px;
+}
+
+.zk-cal__grid-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.zk-cal__head {
+    text-align: center;
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+}
+
+.zk-cal__head--week {
+    grid-column: auto;
+}
+
+.zk-cal__week-row {
+    display: grid;
+    gap: 4px;
+}
+
+.zk-cal__day {
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    min-height: 42px;
+    background: var(--b3-theme-surface);
+    color: var(--b3-theme-on-surface);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 4px;
+}
+
+.zk-cal__day--today {
+    border-color: var(--b3-theme-primary);
+}
+
+.zk-cal__day--muted {
+    opacity: 0.45;
+}
+
+.zk-cal__day--hasnote {
+    background: var(--b3-theme-primary-lightest);
+}
+
+.zk-cal__dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    max-width: 42px;
+    align-content: flex-start;
+}
+
+.zk-cal__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    display: inline-block;
+    background: var(--b3-theme-on-surface);
+}
+
+.zk-cal__dot--hollow {
+    background: transparent;
+    border: 1px solid var(--b3-theme-on-surface);
+}
+
+.zk-cal__dot--dotted {
+    background: transparent;
+    border: 1px dotted var(--b3-theme-on-surface);
+}
+
+.zk-cal__weeknum {
+    border: 1px solid var(--b3-border-color);
+    border-radius: 6px;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+    width: 100%;
+    min-height: 42px;
+}
+
+.zk-cal__loading {
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+}
+
+.zk-cal__meta {
+    border-top: 1px solid var(--b3-border-color);
+    padding-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.zk-cal__meta-title {
+    font-weight: 600;
+}
+
+.zk-cal__meta-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+}

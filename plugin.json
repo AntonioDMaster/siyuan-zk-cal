@@ -1,0 +1,52 @@
+{
+  "name": "siyuan-zk-cal",
+  "author": "AntonioDMaster",
+  "url": "https://github.com/AntonioDMaster/siyuan-zk-cal",
+  "version": "0.4.5",
+  "minAppVersion": "3.2.1",
+  "disabledInPublish": true,
+  "backends": [
+    "windows",
+    "linux",
+    "darwin",
+    "ios",
+    "android",
+    "harmony",
+    "docker"
+  ],
+  "frontends": [
+    "desktop",
+    "mobile",
+    "browser-desktop",
+    "browser-mobile",
+    "desktop-window"
+  ],
+  "displayName": {
+    "default": "Zk-Cal",
+    "zh_CN": "日历视图"
+  },
+  "description": {
+    "default": "Calendar view for SiYuan. Visualize and navigate between your daily notes",
+    "zh_CN": "日历视图，可视化并导航您的每日笔记"
+  },
+  "readme": {
+    "default": "README.md"
+  },
+  "funding": {
+    "openCollective": "",
+    "patreon": "",
+    "github": "",
+    "custom": []
+  },
+  "keywords": [
+    "calendar",
+    "daily notes",
+    "weekly notes",
+    "notes",
+    "notes management",
+    "notes navigation",
+    "notes visualization",
+    "notes navigation",
+    "示例"
+  ]
+}
