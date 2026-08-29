@@ -1,4 +1,4 @@
-import type { CalendarSettings, PeriodicDoc } from "../types";
+import type { CalendarSettings, DebugLogger, PeriodicDoc } from "../types";
 import {
     createDocWithMd,
     getNotebookConf,
@@ -90,8 +90,13 @@ export async function getRenderedDailyNoteName(date: Date, settings: CalendarSet
     return result;
 }
 
-export async function createDailyNote(date: Date, settings: CalendarSettings): Promise<string | null> {
+export async function createDailyNote(
+    date: Date,
+    settings: CalendarSettings,
+    debug?: DebugLogger,
+): Promise<string | null> {
     if (!settings.notebookId) {
+        debug?.("createDailyNote: no notebook selected, aborting");
         return null;
     }
     const notebookId = settings.notebookId;
@@ -105,15 +110,24 @@ export async function createDailyNote(date: Date, settings: CalendarSettings): P
 
     if (folder) {
         const path = `${folder}/${title}`;
+        debug?.("createDailyNote: using plugin folder path", { path, template: effectiveTemplatePath || null });
         if (effectiveTemplatePath) {
             const docId = await createDocWithMd(notebookId, path, "");
             if (!docId) {
+                debug?.("createDailyNote: createDocWithMd failed", { path });
                 return null;
             }
             await renderTemplateToDocument(docId, effectiveTemplatePath);
+            debug?.("createDailyNote: daily note created", { docId, path });
             return docId;
         }
-        return createDocumentWithMarkdown(notebookId, path, `# ${title}\n`);
+        const docId = await createDocumentWithMarkdown(notebookId, path, `# ${title}\n`);
+        if (!docId) {
+            debug?.("createDailyNote: createDocumentWithMarkdown failed", { path });
+            return null;
+        }
+        debug?.("createDailyNote: daily note created", { docId, path });
+        return docId;
     }
 
     if (savePath) {
@@ -122,10 +136,13 @@ export async function createDailyNote(date: Date, settings: CalendarSettings): P
         const templateWithDate = pathTemplate.replace(/\[\[dateSlot\]\]/g, dateStr);
         const renderedPath = await renderSprig(templateWithDate);
         if (!renderedPath || typeof renderedPath !== "string") {
+            debug?.("createDailyNote: sprig rendering of dailyNoteSavePath failed", { savePath });
             return null;
         }
+        debug?.("createDailyNote: using notebook dailyNoteSavePath", { path: renderedPath, template: effectiveTemplatePath || null });
         const docId = await createDocWithMd(notebookId, renderedPath, "");
         if (!docId) {
+            debug?.("createDailyNote: createDocWithMd failed", { path: renderedPath });
             return null;
         }
         if (effectiveTemplatePath) {
@@ -133,13 +150,21 @@ export async function createDailyNote(date: Date, settings: CalendarSettings): P
         }
         const attrValue = formatDateByPattern(date, "YYYYMMDD");
         await setBlockAttrs(docId, { "custom-dailynote-yyyyMMdd": attrValue });
+        debug?.("createDailyNote: daily note created", { docId, path: renderedPath });
         return docId;
     }
 
     const path = `/${title}`;
     const template = await readTemplateContent(pluginTemplate ?? "");
     const markdown = template ? applyTemplateTokens(template, date, settings.dailyNoteFormat) : `# ${title}\n`;
-    return createDocumentWithMarkdown(notebookId, path, markdown);
+    debug?.("createDailyNote: using notebook root path", { path, template: pluginTemplate || null });
+    const docId = await createDocumentWithMarkdown(notebookId, path, markdown);
+    if (!docId) {
+        debug?.("createDailyNote: createDocumentWithMarkdown failed", { path });
+        return null;
+    }
+    debug?.("createDailyNote: daily note created", { docId, path });
+    return docId;
 }
 
 function inferTitle(hpath: string, path: string, content: string): string {

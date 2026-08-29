@@ -1,5 +1,8 @@
 export type CalendarGranularity = "day" | "week";
 
+/** Optional debug logger; prints to the dev console only when the "Debug messages" setting is on. */
+export type DebugLogger = (message: string, extra?: Record<string, unknown>) => void;
+
 export interface CalendarSettings {
     notebookId: string;
     dailyNoteFolder: string;

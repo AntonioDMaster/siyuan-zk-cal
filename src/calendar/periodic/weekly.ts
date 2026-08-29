@@ -1,4 +1,4 @@
-import type { CalendarSettings, PeriodicDoc } from "../types";
+import type { CalendarSettings, DebugLogger, PeriodicDoc } from "../types";
 import { createDocWithMd, getSystemConf, prependBlock, render } from "@/api";
 import { createDocumentWithMarkdown, readTemplateContent } from "../adapters/siyuan-filetree";
 import { listAllDocumentRoots } from "../adapters/siyuan-search";
@@ -42,18 +42,25 @@ export function getWeeklyNote(
     return notes[getDateUID(date, "week", weekStart)] ?? null;
 }
 
-export async function createWeeklyNote(date: Date, settings: CalendarSettings): Promise<string | null> {
+export async function createWeeklyNote(
+    date: Date,
+    settings: CalendarSettings,
+    debug?: DebugLogger,
+): Promise<string | null> {
     if (!settings.notebookId) {
+        debug?.("createWeeklyNote: no notebook selected, aborting");
         return null;
     }
     const weekDate = startOfWeek(date, settings.weekStart);
     const title = formatDateByPattern(weekDate, settings.weeklyNoteFormat);
     const path = `${normalizeFolder(settings.weeklyNoteFolder)}/${title}`;
     const templatePath = settings.weeklyNoteTemplate?.trim();
+    debug?.("createWeeklyNote: resolved path", { path, template: templatePath || null });
 
     if (templatePath) {
         const docId = await createDocWithMd(settings.notebookId, path, "");
         if (!docId) {
+            debug?.("createWeeklyNote: createDocWithMd failed", { path });
             return null;
         }
         const sysConf = await getSystemConf();
@@ -63,12 +70,19 @@ export async function createWeeklyNote(date: Date, settings: CalendarSettings): 
         if (rendered?.content) {
             await prependBlock("dom", rendered.content, docId);
         }
+        debug?.("createWeeklyNote: weekly note created", { docId, path });
         return docId;
     }
 
     const template = await readTemplateContent(settings.weeklyNoteTemplate);
     const markdown = template ? applyTemplateTokens(template, weekDate, settings.weeklyNoteFormat) : `# ${title}\n`;
-    return createDocumentWithMarkdown(settings.notebookId, path, markdown);
+    const docId = await createDocumentWithMarkdown(settings.notebookId, path, markdown);
+    if (!docId) {
+        debug?.("createWeeklyNote: createDocumentWithMarkdown failed", { path });
+        return null;
+    }
+    debug?.("createWeeklyNote: weekly note created", { docId, path });
+    return docId;
 }
 
 export function formatWeekLabel(date: Date): string {

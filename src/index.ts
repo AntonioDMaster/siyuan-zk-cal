@@ -29,8 +29,19 @@ export default class SiYuanZkCalPlugin extends Plugin {
     async onload(): Promise<void> {
         const loaded = await this.loadData(CALENDAR_SETTINGS_FILE);
         this.settings = normalizeCalendarSettings(loaded);
-        this.controller = new CalendarController(this, { ...this.settings }, this.i18n as Record<string, string>);
+        this.debug("Plugin loaded", {
+            notebookId: this.settings.notebookId,
+            weeklyEnabled: this.settings.weeklyEnabled,
+            debugMessages: this.settings.debugMessages,
+        });
+        this.controller = new CalendarController(
+            this,
+            { ...this.settings },
+            this.i18n as Record<string, string>,
+            (message, extra) => this.debug(message, extra),
+        );
         await this.controller.refresh();
+        this.debug("Initial calendar refresh complete");
 
         this.registerDock();
         this.registerCommands();
@@ -39,6 +50,7 @@ export default class SiYuanZkCalPlugin extends Plugin {
     }
 
     async onunload(): Promise<void> {
+        this.debug("Plugin unloading, destroying calendar app");
         this.calendarApp?.$destroy();
         this.calendarApp = null;
     }

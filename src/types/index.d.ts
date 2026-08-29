@@ -104,3 +104,15 @@ interface Window {
     };
     Lute: any;
 }
+
+// TypeScript's lib definitions do not yet declare Intl.Locale#weekInfo
+// (ECMA-402 Intl weekInfo proposal), so augment it here.
+declare namespace Intl {
+    interface Locale {
+        weekInfo?: {
+            firstDay: number;
+            calendar?: string;
+            numberingSystem?: string;
+        };
+    }
+}

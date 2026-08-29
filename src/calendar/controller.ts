@@ -9,7 +9,7 @@ import { exportDocumentMarkdown, getOpenNotebooks, removeDocument } from "./adap
 import { getDocumentById } from "./adapters/siyuan-search";
 import type { DocTreeStat } from "./types";
 import { createDefaultSources, evaluateDailySources, evaluateWeeklySources } from "./sources";
-import type { CalendarCellData, CalendarSettings, CalendarSource, PeriodicDoc } from "./types";
+import type { CalendarCellData, CalendarSettings, CalendarSource, DebugLogger, PeriodicDoc } from "./types";
 import { createDailyNote, getAllDailyNotes, getDailyNote, getRenderedDailyNoteName } from "./periodic/daily";
 import {
     addDays,
@@ -29,16 +29,18 @@ export class CalendarController {
     public readonly i18n: Record<string, string>;
 
     private sources: CalendarSource[];
+    private debug: DebugLogger;
     private dailyNotes: Record<string, PeriodicDoc> = {};
     private weeklyNotes: Record<string, PeriodicDoc> = {};
     private markdownCache = new Map<string, string>();
     private displayLocaleMessages: Record<string, unknown> | null = null;
     private displayLocaleMessagesLocale = "";
 
-    constructor(plugin: Plugin, settings: CalendarSettings, i18n: Record<string, string>) {
+    constructor(plugin: Plugin, settings: CalendarSettings, i18n: Record<string, string>, debug: DebugLogger = () => undefined) {
         this.plugin = plugin;
         this.settings = settings;
         this.i18n = i18n;
+        this.debug = debug;
         this.sources = createDefaultSources(i18n);
     }
 
@@ -121,41 +123,58 @@ export class CalendarController {
     async openOrCreateDaily(date: Date): Promise<void> {
         let doc = getDailyNote(date, this.dailyNotes);
         if (!doc) {
+            this.debug("openOrCreateDaily: no daily note for date", { date: date.toISOString() });
             const shouldCreate = await this.shouldCreateMissing("day", date);
             if (!shouldCreate) {
                 return;
             }
-            const created = await createDailyNote(date, this.settings);
+            const created = await createDailyNote(date, this.settings, (message, extra) => this.debug(message, extra));
             if (!created) {
                 return;
             }
             await this.refresh();
             doc = getDailyNote(date, this.dailyNotes);
+            if (!doc) {
+                this.debug("openOrCreateDaily: note created but not found after refresh", { date: date.toISOString(), docId: created });
+                return;
+            }
+        } else {
+            this.debug("openOrCreateDaily: existing daily note found", { date: date.toISOString(), docId: doc.id, path: doc.path });
         }
         if (doc) {
+            this.debug("openOrCreateDaily: opening note in tab", { docId: doc.id });
             await openTab({ app: this.plugin.app, doc: { id: doc.id } });
         }
     }
 
     async openOrCreateWeekly(date: Date): Promise<void> {
         if (!this.settings.weeklyEnabled) {
+            this.debug("openOrCreateWeekly: weekly notes are disabled in settings, ignoring");
             return;
         }
         const weekDate = startOfWeek(date, this.settings.weekStart);
         let doc = getWeeklyNote(weekDate, this.weeklyNotes, this.settings.weekStart);
         if (!doc) {
+            this.debug("openOrCreateWeekly: no weekly note for week", { weekDate: weekDate.toISOString() });
             const shouldCreate = await this.shouldCreateMissing("week", weekDate);
             if (!shouldCreate) {
                 return;
             }
-            const created = await createWeeklyNote(weekDate, this.settings);
+            const created = await createWeeklyNote(weekDate, this.settings, (message, extra) => this.debug(message, extra));
             if (!created) {
                 return;
             }
             await this.refresh();
             doc = getWeeklyNote(weekDate, this.weeklyNotes, this.settings.weekStart);
+            if (!doc) {
+                this.debug("openOrCreateWeekly: note created but not found after refresh", { weekDate: weekDate.toISOString(), docId: created });
+                return;
+            }
+        } else {
+            this.debug("openOrCreateWeekly: existing weekly note found", { weekDate: weekDate.toISOString(), docId: doc.id, path: doc.path });
         }
         if (doc) {
+            this.debug("openOrCreateWeekly: opening note in tab", { docId: doc.id });
             await openTab({ app: this.plugin.app, doc: { id: doc.id } });
         }
     }
@@ -163,18 +182,24 @@ export class CalendarController {
     async removeDaily(date: Date): Promise<void> {
         const doc = getDailyNote(date, this.dailyNotes);
         if (!doc) {
+            this.debug("removeDaily: no daily note to delete", { date: date.toISOString() });
             return;
         }
+        this.debug("removeDaily: deleting note", { docId: doc.id, box: doc.box, path: doc.path });
         await removeDocument(doc.box, doc.path);
+        this.debug("removeDaily: note deleted, refreshing");
         await this.refresh();
     }
 
     async removeWeekly(date: Date): Promise<void> {
         const doc = getWeeklyNote(date, this.weeklyNotes, this.settings.weekStart);
         if (!doc) {
+            this.debug("removeWeekly: no weekly note to delete", { date: date.toISOString() });
             return;
         }
+        this.debug("removeWeekly: deleting note", { docId: doc.id, box: doc.box, path: doc.path });
         await removeDocument(doc.box, doc.path);
+        this.debug("removeWeekly: note deleted, refreshing");
         await this.refresh();
     }
 
@@ -183,23 +208,33 @@ export class CalendarController {
         try {
             active = (this.plugin as PluginWithActiveEditor).getActiveEditor?.();
         } catch {
+            this.debug("revealActiveNoteDate: getActiveEditor threw");
             return null;
         }
         const docId = active?.protyle?.block?.rootID;
         if (!docId) {
+            this.debug("revealActiveNoteDate: no active document");
             return null;
         }
         const doc = await getDocumentById(docId);
         if (!doc) {
+            this.debug("revealActiveNoteDate: active document not found in database", { docId });
             return null;
         }
         const title = doc.hpath?.split("/").filter(Boolean).pop() ?? doc.content;
         const dailyDate = title ? parseDateByPattern(title, this.settings.dailyNoteFormat, "day") : null;
         if (dailyDate) {
+            this.debug("revealActiveNoteDate: active note is a daily note", { docId, date: dailyDate.toISOString() });
             return dailyDate;
         }
         const weeklyDate = title ? parseDateByPattern(title, this.settings.weeklyNoteFormat, "week") : null;
-        return weeklyDate ? startOfWeek(weeklyDate, this.settings.weekStart) : null;
+        if (weeklyDate) {
+            const weekStart = startOfWeek(weeklyDate, this.settings.weekStart);
+            this.debug("revealActiveNoteDate: active note is a weekly note", { docId, date: weekStart.toISOString() });
+            return weekStart;
+        }
+        this.debug("revealActiveNoteDate: title does not match a periodic note format", { docId, title: title ?? "" });
+        return null;
     }
 
     getDaysOfWeek(locale = this.getDisplayLocale()): string[] {
@@ -364,6 +399,7 @@ export class CalendarController {
 
     private async shouldCreateMissing(granularity: "day" | "week", date: Date): Promise<boolean> {
         if (!this.settings.confirmBeforeCreate) {
+            this.debug("shouldCreateMissing: confirmBeforeCreate disabled, creating without prompt");
             return true;
         }
         const format = granularity === "day" ? this.settings.dailyNoteFormat : this.settings.weeklyNoteFormat;
@@ -374,8 +410,14 @@ export class CalendarController {
             confirm(
                 this.i18n["calendar.confirmCreateTitle"] ?? "Create note",
                 message,
-                () => resolve(true),
-                () => resolve(false),
+                () => {
+                    this.debug("shouldCreateMissing: user confirmed note creation", { noteName });
+                    resolve(true);
+                },
+                () => {
+                    this.debug("shouldCreateMissing: user cancelled note creation", { noteName });
+                    resolve(false);
+                },
             );
         });
     }
