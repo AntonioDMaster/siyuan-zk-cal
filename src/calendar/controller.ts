@@ -6,7 +6,7 @@ interface PluginWithActiveEditor extends Plugin {
 }
 import { getTreeStat } from "@/api";
 import { exportDocumentMarkdown, getOpenNotebooks, removeDocument } from "./adapters/siyuan-filetree";
-import { getDocumentById } from "./adapters/siyuan-search";
+import { getDocumentById, resolveDocHPath } from "./adapters/siyuan-search";
 import type { DocTreeStat } from "./types";
 import { createDefaultSources, evaluateDailySources, evaluateWeeklySources } from "./sources";
 import type { CalendarCellData, CalendarSettings, CalendarSource, DebugLogger, PeriodicDoc } from "./types";
@@ -17,7 +17,7 @@ import {
     getWeekNumberByStart,
     getWeekdayLabels,
     isSameDay,
-    parseDateByPattern,
+    parseNoteDate,
     startOfMonth,
     startOfWeek,
 } from "./periodic/parse";
@@ -61,8 +61,10 @@ export class CalendarController {
 
     async refresh(): Promise<void> {
         await this.ensureNotebookSelected();
-        this.dailyNotes = await getAllDailyNotes(this.settings);
-        this.weeklyNotes = this.settings.weeklyEnabled ? await getAllWeeklyNotes(this.settings) : {};
+        this.dailyNotes = await getAllDailyNotes(this.settings, (message, extra) => this.debug(message, extra));
+        this.weeklyNotes = this.settings.weeklyEnabled
+            ? await getAllWeeklyNotes(this.settings, (message, extra) => this.debug(message, extra))
+            : {};
         this.markdownCache.clear();
         this.statCache.clear();
     }
@@ -135,7 +137,11 @@ export class CalendarController {
             await this.refresh();
             doc = getDailyNote(date, this.dailyNotes);
             if (!doc) {
-                this.debug("openOrCreateDaily: note created but not found after refresh", { date: date.toISOString(), docId: created });
+                this.debug("openOrCreateDaily: note created but not found after refresh", {
+                    date: date.toISOString(),
+                    docId: created,
+                    row: await this.getDocDebugRow(created),
+                });
                 return;
             }
         } else {
@@ -167,7 +173,11 @@ export class CalendarController {
             await this.refresh();
             doc = getWeeklyNote(weekDate, this.weeklyNotes, this.settings.weekStart);
             if (!doc) {
-                this.debug("openOrCreateWeekly: note created but not found after refresh", { weekDate: weekDate.toISOString(), docId: created });
+                this.debug("openOrCreateWeekly: note created but not found after refresh", {
+                    weekDate: weekDate.toISOString(),
+                    docId: created,
+                    row: await this.getDocDebugRow(created),
+                });
                 return;
             }
         } else {
@@ -177,6 +187,14 @@ export class CalendarController {
             this.debug("openOrCreateWeekly: opening note in tab", { docId: doc.id });
             await openTab({ app: this.plugin.app, doc: { id: doc.id } });
         }
+    }
+
+    private async getDocDebugRow(docId: string): Promise<Record<string, unknown> | null> {
+        const row = await getDocumentById(docId);
+        if (!row) {
+            return null;
+        }
+        return { id: row.id, box: row.box, path: row.path, hpath: await resolveDocHPath(row), content: row.content };
     }
 
     async removeDaily(date: Date): Promise<void> {
@@ -221,13 +239,25 @@ export class CalendarController {
             this.debug("revealActiveNoteDate: active document not found in database", { docId });
             return null;
         }
-        const title = doc.hpath?.split("/").filter(Boolean).pop() ?? doc.content;
-        const dailyDate = title ? parseDateByPattern(title, this.settings.dailyNoteFormat, "day") : null;
+        const hpath = await resolveDocHPath(doc);
+        const title = hpath ? hpath.split("/").filter(Boolean).pop() ?? doc.content : doc.content;
+        const dailyDate = title
+            ? parseNoteDate(hpath, this.settings.dailyNoteFolder, title, this.settings.dailyNoteFormat, "day")
+            : null;
         if (dailyDate) {
             this.debug("revealActiveNoteDate: active note is a daily note", { docId, date: dailyDate.toISOString() });
             return dailyDate;
         }
-        const weeklyDate = title ? parseDateByPattern(title, this.settings.weeklyNoteFormat, "week") : null;
+        const weeklyDate = title
+            ? parseNoteDate(
+                  hpath,
+                  this.settings.weeklyNoteFolder,
+                  title,
+                  this.settings.weeklyNoteFormat,
+                  "week",
+                  this.settings.weekStart,
+              )
+            : null;
         if (weeklyDate) {
             const weekStart = startOfWeek(weeklyDate, this.settings.weekStart);
             this.debug("revealActiveNoteDate: active note is a weekly note", { docId, date: weekStart.toISOString() });
@@ -403,7 +433,10 @@ export class CalendarController {
             return true;
         }
         const format = granularity === "day" ? this.settings.dailyNoteFormat : this.settings.weeklyNoteFormat;
-        const noteName = formatDateByPattern(date, format);
+        const noteName =
+            granularity === "day"
+                ? formatDateByPattern(date, format)
+                : formatDateByPattern(date, format, this.settings.weekStart);
         const messageTemplate = this.i18n["calendar.confirmCreateMessage"] ?? "Note {name} does not exist. Would you like to create it?";
         const message = messageTemplate.replace("{name}", noteName);
         return new Promise((resolve) => {

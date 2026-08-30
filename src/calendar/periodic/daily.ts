@@ -9,8 +9,8 @@ import {
     setBlockAttrs,
 } from "@/api";
 import { createDocumentWithMarkdown, readTemplateContent } from "../adapters/siyuan-filetree";
-import { listAllDocumentRoots } from "../adapters/siyuan-search";
-import { formatDateByPattern, getDateUID, parseDateByPattern } from "./parse";
+import { getFolderRootIDs, listAllDocumentRoots, listFolderDocRows, resolveDocHPath, type SiyuanDocRow } from "../adapters/siyuan-search";
+import { formatDateByPattern, getDateUID, parseNoteDate } from "./parse";
 import { applyTemplateTokens } from "./template";
 
 /**
@@ -23,16 +23,38 @@ function buildSavePathTemplate(notebookSavePath: string): string {
     );
 }
 
-export async function getAllDailyNotes(settings: CalendarSettings): Promise<Record<string, PeriodicDoc>> {
-    const docs = await listAllDocumentRoots();
-    const mapped: Record<string, PeriodicDoc> = {};
+export async function getAllDailyNotes(settings: CalendarSettings, debug?: DebugLogger): Promise<Record<string, PeriodicDoc>> {
     const folder = normalizeFolder(settings.dailyNoteFolder);
+    // Notes under the configured folder are listed from the kernel blocktree
+    // index + disk doc tree (current right after creation); the `blocks`
+    // table lags on some setups, so it remains a fallback only.
+    const docs =
+        folder && settings.notebookId
+            ? await listFolderDocRows(settings.notebookId, folder, debug)
+            : await listAllDocumentRoots(debug);
+    const mapped: Record<string, PeriodicDoc> = {};
+    const folderRootIDs =
+        folder && !docs.some((row) => row.hpath) ? await getFolderRootIDs(settings.notebookId, folder) : [];
     for (const row of docs) {
-        if (folder && !isPathInFolder(row.path, folder)) {
+        if (folder && !isDocInFolder(row, folder, folderRootIDs, settings.notebookId)) {
             continue;
         }
-        const title = inferTitle(row.hpath, row.path, row.content);
-        const date = parseDateByPattern(title, settings.dailyNoteFormat, "day");
+        let hpath = row.hpath;
+        let title = inferTitle(hpath, row.path, row.content);
+        let date = parseNoteDate(hpath, folder, title, settings.dailyNoteFormat, "day");
+        if (!date && !hpath) {
+            // Older kernels have no blocks.hpath; the data-path segment is a doc id,
+            // so try the content (doc title) first, then the kernel blocktree API.
+            const contentTitle = (row.content ?? "").trim();
+            if (contentTitle) {
+                date = parseNoteDate("", folder, contentTitle, settings.dailyNoteFormat, "day");
+            }
+            if (!date) {
+                hpath = await resolveDocHPath(row);
+                title = hpath ? hpath.split("/").filter(Boolean).pop() || title : title;
+                date = parseNoteDate(hpath, folder, title, settings.dailyNoteFormat, "day");
+            }
+        }
         if (!date) {
             continue;
         }
@@ -41,7 +63,7 @@ export async function getAllDailyNotes(settings: CalendarSettings): Promise<Reco
             id: row.id,
             box: row.box,
             path: row.path,
-            hpath: row.hpath,
+            hpath,
             title,
             granularity: "day",
             dateUID,
@@ -202,6 +224,24 @@ function isPathInFolder(path: string, folder: string): boolean {
     const normalizedPath = normalizePathForCompare(path);
     const normalizedFolder = normalizePathForCompare(folder);
     return normalizedPath === normalizedFolder || normalizedPath.startsWith(`${normalizedFolder}/`);
+}
+
+/**
+ * Whether a doc row lives inside the folder. Uses `blocks.hpath` when present;
+ * on older kernels (no hpath column) matches by data path, where descendants
+ * are stored under their parent doc id (e.g. `/<folderRootId>/<docId>.sy`).
+ */
+function isDocInFolder(row: SiyuanDocRow, folder: string, folderRootIDs: string[], notebookId: string): boolean {
+    if (!folder) {
+        return true;
+    }
+    if (row.hpath) {
+        return isPathInFolder(row.hpath, folder);
+    }
+    if (notebookId && row.box !== notebookId) {
+        return false;
+    }
+    return folderRootIDs.some((rootID) => row.path.startsWith(`/${rootID}/`));
 }
 
 function buildPathWithFolder(folder: string, title: string): string {

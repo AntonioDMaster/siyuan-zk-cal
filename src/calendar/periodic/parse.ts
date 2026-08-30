@@ -17,19 +17,24 @@ export function getDateUID(date: Date, granularity: CalendarGranularity, weekSta
     return `${granularity}-${normalized.toISOString()}`;
 }
 
-export function formatDateByPattern(date: Date, format: string): string {
-    const iso = getISOWeekInfo(date);
+export function formatDateByPattern(date: Date, format: string, weekStart: WeekStartOption = "monday"): string {
+    const weekInfo = getWeekInfoByStart(date, weekStart);
     const tokenValues: Record<string, string> = {
         YYYY: String(date.getFullYear()),
         MM: String(date.getMonth() + 1).padStart(2, "0"),
         DD: String(date.getDate()).padStart(2, "0"),
-        gggg: String(iso.weekYear),
-        ww: String(iso.week).padStart(2, "0"),
+        gggg: String(weekInfo.weekYear),
+        ww: String(weekInfo.week).padStart(2, "0"),
     };
     return format.replace(FORMAT_TOKEN_REGEX, (token) => tokenValues[token] ?? token);
 }
 
-export function parseDateByPattern(title: string, format: string, granularity: CalendarGranularity): Date | null {
+export function parseDateByPattern(
+    title: string,
+    format: string,
+    granularity: CalendarGranularity,
+    weekStart: WeekStartOption = "monday",
+): Date | null {
     const escaped = format.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const tokenOrder: string[] = [];
     const regexBody = escaped.replace(FORMAT_TOKEN_REGEX, (token) => {
@@ -61,7 +66,52 @@ export function parseDateByPattern(title: string, format: string, granularity: C
     if (!weekYear || !week) {
         return null;
     }
-    return isoWeekToDate(weekYear, week);
+    return weekStartDate(weekYear, week, weekStart);
+}
+
+/**
+ * Parse a periodic note date from a document's hpath.
+ *
+ * The format may contain sub-paths (e.g. "YYYY/MM/YYYY-MM-DD"), in which case
+ * the folder-relative path (e.g. "2026/08/2026-08-30") is the string that matches
+ * the format, not just the last path segment. The folder-relative path is tried
+ * first, then the last segment (preserves the prior behavior for flat formats
+ * and for notes with extra nesting beyond the format), then the fallback title.
+ */
+export function parseNoteDate(
+    hpath: string,
+    folder: string,
+    fallbackTitle: string,
+    format: string,
+    granularity: CalendarGranularity,
+    weekStart: WeekStartOption = "monday",
+): Date | null {
+    for (const candidate of noteNameCandidates(hpath, folder, fallbackTitle)) {
+        const date = parseDateByPattern(candidate, format, granularity, weekStart);
+        if (date) {
+            return date;
+        }
+    }
+    return null;
+}
+
+function noteNameCandidates(hpath: string, folder: string, fallbackTitle: string): string[] {
+    const path = (hpath ?? "").trim().replace(/^\/+/, "");
+    const folderPath = (folder ?? "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+    const candidates: string[] = [];
+    if (path && path !== folderPath) {
+        const relative =
+            folderPath && path.startsWith(`${folderPath}/`) ? path.slice(folderPath.length + 1) : path;
+        candidates.push(relative);
+        const last = path.split("/").filter(Boolean).pop();
+        if (last && last !== relative) {
+            candidates.push(last);
+        }
+    }
+    if (fallbackTitle && !candidates.includes(fallbackTitle)) {
+        candidates.push(fallbackTitle);
+    }
+    return candidates;
 }
 
 export function startOfDay(date: Date): Date {
@@ -97,23 +147,31 @@ export function startOfWeek(date: Date, weekStart: WeekStartOption = "locale"): 
     return addDays(normalized, -offset);
 }
 
-export function getISOWeekInfo(date: Date): { week: number; weekYear: number } {
-    const target = startOfDay(date);
-    const thursday = addDays(target, 3 - ((target.getDay() + 6) % 7));
-    const weekYear = thursday.getFullYear();
-    const firstThursday = new Date(weekYear, 0, 4);
-    const firstThursdayWeekStart = addDays(firstThursday, -((firstThursday.getDay() + 6) % 7));
-    const diffMs = thursday.getTime() - firstThursdayWeekStart.getTime();
-    const week = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
+
+/**
+ * Week info for weeks starting on the resolved `weekStart` day. Week 1 of a year
+ * is the week containing Jan 4 of that year (ISO-compatible when the week
+ * starts on Monday). The week year is the year containing the week's 4th day
+ * (Thursday for Monday-start weeks).
+ */
+export function getWeekInfoByStart(date: Date, weekStart: WeekStartOption): { week: number; weekYear: number } {
+    const weekStartDay = startOfWeek(date, weekStart);
+    const weekYear = addDays(weekStartDay, 3).getFullYear();
+    const week1Start = startOfWeek(new Date(weekYear, 0, 4), weekStart);
+    const diffMs = weekStartDay.getTime() - week1Start.getTime();
+    const week = Math.floor(diffMs / (7 * DAY_MS)) + 1;
     return { week, weekYear };
 }
 
-export function isoWeekToDate(weekYear: number, week: number): Date | null {
+/**
+ * Inverse of `getWeekInfoByStart`: the first day of week `week` of `weekYear`
+ * under the resolved `weekStart` day.
+ */
+export function weekStartDate(weekYear: number, week: number, weekStart: WeekStartOption): Date | null {
     if (week < 1 || week > 53) {
         return null;
     }
-    const jan4 = new Date(weekYear, 0, 4);
-    const week1Start = addDays(jan4, -((jan4.getDay() + 6) % 7));
+    const week1Start = startOfWeek(new Date(weekYear, 0, 4), weekStart);
     const result = addDays(week1Start, (week - 1) * 7);
     return Number.isNaN(result.getTime()) ? null : startOfDay(result);
 }
@@ -123,15 +181,7 @@ export function getWeekNumber(date: Date): number {
 }
 
 export function getWeekNumberByStart(date: Date, weekStart: WeekStartOption = "locale"): number {
-    const firstDay = resolveWeekStartDay(weekStart);
-    if (firstDay === 1) {
-        return getISOWeekInfo(date).week;
-    }
-    const normalized = startOfWeek(date, weekStart);
-    const jan1 = new Date(normalized.getFullYear(), 0, 1);
-    const firstWeekStart = startOfWeek(jan1, weekStart);
-    const diff = normalized.getTime() - firstWeekStart.getTime();
-    return Math.floor(diff / DAY_MS / 7) + 1;
+    return getWeekInfoByStart(date, weekStart).week;
 }
 
 export function getWeekdayLabels(weekStart: WeekStartOption = "locale", locale = navigator.language): string[] {

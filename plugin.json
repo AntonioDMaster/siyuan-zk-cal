@@ -2,7 +2,7 @@
   "name": "siyuan-zk-cal",
   "author": "AntonioDMaster",
   "url": "https://github.com/AntonioDMaster/siyuan-zk-cal",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "minAppVersion": "3.2.1",
   "disabledInPublish": true,
   "backends": [

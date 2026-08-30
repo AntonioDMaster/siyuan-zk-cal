@@ -137,6 +137,22 @@ export async function getIDsByHPath(notebook: NotebookId, path: string): Promise
     return request(url, data);
 }
 
+
+export interface DocTreeFile {
+    id: string;
+    children?: DocTreeFile[];
+}
+
+export async function listDocTree(notebook: NotebookId, path: string): Promise<DocTreeFile[]> {
+    let data = {
+        notebook: notebook,
+        path: path
+    };
+    let url = '/api/filetree/listDocTree';
+    const res = await request(url, data);
+    return (res as { tree?: DocTreeFile[] } | null)?.tree ?? [];
+}
+
 // **************************************** Asset Files ****************************************
 
 export async function upload(assetsDirPath: string, files: any[]): Promise<IResUpload> {
@@ -253,6 +269,25 @@ export async function getChildBlocks(id: BlockId): Promise<IResGetChildBlock[]> 
     }
     let url = '/api/block/getChildBlocks';
     return request(url, data);
+}
+
+
+export interface DocInfo {
+    id: string;
+    rootID: string;
+    name: string;
+}
+
+export async function getDocsInfo(ids: BlockId[]): Promise<DocInfo[]> {
+    // The kernel requires the refCount/av booleans to be present.
+    let data = {
+        ids: ids,
+        refCount: false,
+        av: false
+    };
+    let url = '/api/block/getDocsInfo';
+    const res = await request(url, data);
+    return Array.isArray(res) ? (res as DocInfo[]) : [];
 }
 
 export async function transferBlockRef(fromID: BlockId, toID: BlockId, refIDs: BlockId[]) {
